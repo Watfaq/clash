@@ -6,6 +6,7 @@ import (
 	"time"
 
 	C "github.com/Dreamacro/clash/constant"
+	"github.com/Dreamacro/clash/log"
 
 	"go.uber.org/atomic"
 )
@@ -62,14 +63,24 @@ func (hc *HealthCheck) check() {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultURLTestTimeout)
 	wg := &sync.WaitGroup{}
 
-	for _, proxy := range hc.proxies {
-		wg.Add(1)
+	ch := make(chan C.Proxy, 5)
+	log.Errorln("%d proxies", len(hc.proxies))
+	go func() {
+		for _, proxy := range hc.proxies {
+			wg.Add(1)
+			log.Infoln("adding to ch")
+			ch <- proxy
+		}
+		close(ch)
+	}()
 
-		go func(p C.Proxy) {
-			p.URLTest(ctx, hc.url)
+	go func() {
+		for proxy := range ch {
+			log.Infoln("dequeue from ch")
+			proxy.URLTest(ctx, hc.url)
 			wg.Done()
-		}(proxy)
-	}
+		}
+	}()
 
 	wg.Wait()
 	cancel()

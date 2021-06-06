@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/Dreamacro/clash/common/queue"
@@ -13,6 +14,25 @@ import (
 
 	"go.uber.org/atomic"
 )
+
+var transportPool = sync.Pool{New: func() interface{} {
+	return &http.Transport{
+
+		// from http.DefaultTransport
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+}}
+
+var httpClientPool = sync.Pool{New: func() interface{} {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}}
 
 type Base struct {
 	name string
@@ -189,23 +209,15 @@ func (p *Proxy) URLTest(ctx context.Context, url string) (t uint16, err error) {
 	}
 	req = req.WithContext(ctx)
 
-	transport := &http.Transport{
-		Dial: func(string, string) (net.Conn, error) {
-			return instance, nil
-		},
-		// from http.DefaultTransport
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+	transport := transportPool.Get().(*http.Transport)
+	defer transportPool.Put(transport)
+	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return instance, nil
 	}
 
-	client := http.Client{
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := httpClientPool.Get().(*http.Client)
+	defer httpClientPool.Put(client)
+	client.Transport = transport
 	resp, err := client.Do(req)
 	if err != nil {
 		return
