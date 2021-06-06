@@ -68,7 +68,6 @@ func (hc *HealthCheck) check() {
 	go func() {
 		for _, proxy := range hc.proxies {
 			wg.Add(1)
-			log.Infoln("adding to ch")
 			ch <- proxy
 		}
 		close(ch)
@@ -76,7 +75,6 @@ func (hc *HealthCheck) check() {
 
 	go func() {
 		for proxy := range ch {
-			log.Infoln("dequeue from ch")
 			proxy.URLTest(ctx, hc.url)
 			wg.Done()
 		}
